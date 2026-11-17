@@ -1,39 +1,36 @@
 # Wazuh Vulnerability Reporter
 
-> **État du projet :** fondation documentaire — le script et les modules décrits ci-dessous restent à implémenter.
+Outil en ligne de commande qui exporte l'inventaire des vulnérabilités détectées par Wazuh, regroupable par poste et paquet. La première version est **en lecture seule** : elle ne modifie ni les agents ni les paquets.
 
-## Objectif
+> **État :** première version fonctionnelle. Les appels à l'API sont testés avec des réponses simulées ; une connexion à un environnement Wazuh réel reste à valider.
 
-Ce projet a pour but d'interroger l'API REST du **Wazuh Manager** afin de récupérer les vulnérabilités détectées sur les agents supervisés, puis de produire un rapport exploitable indiquant, pour chaque poste, les paquets ou logiciels à mettre à jour.
+## Architecture Wazuh
 
-Le périmètre initial est la **lecture et le reporting** : le projet ne modifie pas les postes et ne lance pas de mises à jour.
+Dans les versions récentes de Wazuh, les résultats du module Vulnerability Detection sont consultables dans l'index `wazuh-states-vulnerabilities-*` du **Wazuh Indexer**. L'API REST du Manager sert à administrer le Manager et les agents, mais ne fournit pas ces documents dans sa spécification actuelle.
 
-## Fonctionnement prévu
+Le programme se connecte donc directement à l'API REST de l'Indexer, généralement sur `https://<hôte>:9200`, avec un compte autorisé à lire cet index. Il récupère les résultats par pages via l'API Scroll, puis écrit un rapport CSV ou JSON. Aucun nom de service ou numéro de version correctif n'est inventé : le rapport reprend la condition d'affectation fournie par Wazuh.
 
-1. Se connecter à l'API REST du Wazuh Manager avec un compte dédié.
-2. Récupérer les vulnérabilités pour les agents concernés, en gérant la pagination et les erreurs API.
-3. Normaliser les informations retournées : poste, système, paquet/logiciel, version installée, CVE, sévérité et version corrigée lorsqu'elle est disponible.
-4. Regrouper les résultats par poste et par paquet.
-5. Générer un rapport, d'abord en CSV et/ou JSON, afin de faciliter le tri et le suivi des mises à jour.
+Cette première version cible **Wazuh 4.14.10**, qui correspond à la version indiquée pour l'installation. Le comportement est fondé sur la documentation et les exemples de documents de cette version ; il reste à valider avec les identifiants et droits de l'Indexer de l'environnement réel.
 
-Les routes, champs disponibles et méthodes de pagination dépendent de la version de Wazuh. L'implémentation devra s'appuyer sur la documentation de l'API correspondant à la version installée et vérifier notamment la route de consultation des vulnérabilités.
+## Informations exportées
 
-## Informations attendues dans un rapport
+Chaque ligne représente une vulnérabilité détectée pour un paquet sur un agent.
 
-| Champ | Description |
+| Champ | Source Wazuh |
 | --- | --- |
-| Agent | Nom et identifiant de l'agent Wazuh |
-| Système | Système d'exploitation ou plateforme détectée |
-| Paquet / logiciel | Composant vulnérable identifié par Wazuh |
-| Version installée | Version observée sur le poste |
-| Version corrigée | Version de correction, si fournie par Wazuh |
-| CVE | Identifiant(s) des vulnérabilités associées |
-| Sévérité | Niveau ou score disponible dans les données Wazuh |
-| État | État remonté par Wazuh, si disponible |
+| `agent_id`, `agent_name` | Agent |
+| `operating_system` | Système d'exploitation détecté |
+| `package_name`, `package_version`, `package_type` | Paquet installé |
+| `cve` | Identifiant CVE |
+| `severity`, `cvss_score` | Gravité et score lorsqu'ils sont disponibles |
+| `description` | Description de la vulnérabilité |
+| `affected_condition` | Condition d'affectation renvoyée par Wazuh |
+| `reference` | Référence CTI ou autre référence disponible |
+| `detected_at`, `status` | Date de détection et état, si présents dans le document |
 
-Une vulnérabilité sans version corrigée connue devra être signalée comme telle plutôt que de proposer une version supposée. Les correspondances entre noms de paquets et noms de services ne sont pas toujours directes : elles ne devront être indiquées que si les données permettent de les établir.
+Wazuh ne fournit pas nécessairement une version corrigée dans l'inventaire. La condition d'affectation n'est pas interprétée comme une recommandation de mise à jour : confirmer la version cible auprès du fournisseur du paquet avant toute action.
 
-## Arborescence proposée
+## Arborescence
 
 ```text
 vuln-detect/
@@ -46,84 +43,115 @@ vuln-detect/
 │   └── vuln_detect/
 │       ├── __init__.py
 │       ├── __main__.py
-│       ├── config.py          # Configuration et validation des paramètres
-│       ├── wazuh_client.py    # Authentification et appels à l'API Wazuh
-│       ├── models.py          # Modèle normalisé des agents et vulnérabilités
-│       ├── collector.py       # Collecte, pagination et gestion des agents
-│       ├── report.py          # Génération des rapports CSV/JSON
-│       └── logging_config.py # Configuration des journaux
-├── tests/
-│   ├── test_config.py
-│   ├── test_collector.py
-│   └── test_report.py
-└── reports/                   # Sorties locales (à exclure de Git)
+│       ├── cli.py       # Interface en ligne de commande
+│       ├── client.py    # Connexion et lecture paginée de l'Indexer
+│       ├── config.py    # Configuration par variables d'environnement
+│       ├── models.py    # Normalisation des documents de vulnérabilité
+│       └── report.py    # Export CSV et JSON
+└── tests/
+    ├── test_client.py
+    ├── test_config.py
+    └── test_report.py
 ```
 
-Cette arborescence est une proposition de départ, fondée sur Python. Elle pourra être adaptée avant l'implémentation si une autre technologie ou un autre format de rapport est retenu.
+Le client utilise uniquement la bibliothèque standard de Python.
 
 ## Prérequis
 
-- Un Wazuh Manager accessible depuis la machine qui exécutera le script.
-- Un compte API Wazuh autorisé à lire les informations nécessaires.
-- Python 3 et les dépendances qui seront déclarées dans `pyproject.toml`.
-- Le certificat TLS de l'API, ou une autorité de certification reconnue par la machine d'exécution.
+- Python 3.10 ou plus récent.
+- Accès réseau à l'API REST du Wazuh Indexer.
+- Un compte Indexer dédié, autorisé en lecture sur `wazuh-states-vulnerabilities-*`.
+- Une chaîne de certificats TLS approuvée par la machine d'exécution.
 
-La version minimale de Python et celle de Wazuh devront être précisées en fonction de l'environnement cible.
+## Installation
 
-## Configuration prévue
-
-Les secrets ne doivent pas être enregistrés dans le code source ni dans un fichier versionné. Une configuration locale pourra utiliser des variables d'environnement :
-
-```dotenv
-WAZUH_URL=https://wazuh.example.net:55000
-WAZUH_USERNAME=
-WAZUH_PASSWORD=
-WAZUH_VERIFY_TLS=true
-```
-
-`.env.example` ne contient que des valeurs fictives ou vides. Le fichier `.env` local devra être ignoré par Git. En production, préférer un gestionnaire de secrets ou les mécanismes sécurisés de l'environnement d'exécution.
-
-La vérification TLS doit rester activée. Ne la désactiver qu'en environnement de test contrôlé, jamais comme contournement permanent d'un problème de certificat.
-
-## Utilisation envisagée
-
-Après implémentation, l'interface pourra être lancée comme un module Python :
+Dans PowerShell, depuis le dépôt :
 
 ```powershell
-python -m vuln_detect
+py -3 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e .
 ```
 
-La commande exacte, les options (par exemple sélection des agents ou du format) et le chemin de sortie seront définis avec l'implémentation. Ce lancement est indicatif et ne fonctionne pas tant que le code correspondant n'a pas été ajouté.
+Copier `.env.example` vers `.env`, puis renseigner les valeurs. Le programme lit les variables de l'environnement du processus ; il ne charge pas automatiquement un fichier `.env`. Pour les définir dans PowerShell :
 
-## Sécurité et fiabilité
+```powershell
+$env:WAZUH_INDEXER_URL = "https://wazuh.example.net:9200"
+$env:WAZUH_INDEXER_USERNAME = "vuln-reporter"
+$env:WAZUH_INDEXER_PASSWORD = "<mot-de-passe>"
+$env:WAZUH_VERIFY_TLS = "true"
+$env:WAZUH_TIMEOUT = "30"
+```
 
-- Utiliser un compte API à privilèges minimaux, limité à la lecture nécessaire.
-- Protéger les identifiants et ne jamais les écrire dans les journaux ou rapports.
-- Vérifier les certificats TLS et limiter l'accès réseau à l'API Wazuh.
-- Gérer explicitement les erreurs d'authentification, les délais d'attente, les erreurs API et les réponses incomplètes.
-- Respecter les limites et la pagination de l'API ; ne pas supposer qu'une seule réponse contient tous les résultats.
-- Conserver la provenance des informations et éviter d'inventer une version corrective ou un nom de service.
-- Ne pas exécuter de mise à jour automatique dans le périmètre initial.
+Ne pas versionner de secrets. Le fichier `.env` est ignoré par Git ; en production, préférer un gestionnaire de secrets ou les mécanismes sécurisés de l'environnement d'exécution.
 
-## Tests prévus
+## Utilisation
 
-Les tests devront couvrir au minimum :
+Exporter en CSV (format par défaut) :
 
-- la validation de la configuration, sans utiliser de véritables secrets ;
-- la normalisation des réponses Wazuh représentatives ;
-- la pagination et les réponses vides ;
-- les erreurs API et les données manquantes ;
-- la génération et le regroupement des rapports par agent et paquet.
+```powershell
+vuln-detect --output reports\vulnerabilities.csv
+```
 
-Les tests du client API devront utiliser des réponses simulées afin de ne pas dépendre d'un Manager réel.
+Exporter en JSON :
+
+```powershell
+vuln-detect --format json --output reports\vulnerabilities.json
+```
+
+L'option `--log-level DEBUG` augmente la verbosité. Le programme retourne un code non nul et affiche une erreur sur la sortie d'erreur si la configuration, l'API ou l'export échoue. Il ne journalise pas les identifiants.
+
+### Options
+
+| Option | Valeur par défaut | Description |
+| --- | --- | --- |
+| `--format` | `csv` | Format de sortie : `csv` ou `json` |
+| `--output` | `reports/vulnerabilities.csv` | Chemin du fichier de sortie |
+| `--log-level` | `INFO` | Niveau de journalisation |
+
+## Configuration
+
+| Variable | Obligatoire | Valeur par défaut | Description |
+| --- | --- | --- | --- |
+| `WAZUH_INDEXER_URL` | Oui | — | URL de base de l'API Indexer |
+| `WAZUH_INDEXER_USERNAME` | Oui | — | Compte Indexer en lecture |
+| `WAZUH_INDEXER_PASSWORD` | Oui | — | Mot de passe Indexer |
+| `WAZUH_VERIFY_TLS` | Non | `true` | Vérification du certificat TLS |
+| `WAZUH_TIMEOUT` | Non | `30` | Délai d'attente HTTP, en secondes |
+
+La désactivation de TLS (`WAZUH_VERIFY_TLS=false`) n'est prévue que pour un environnement de test contrôlé. Ne pas l'utiliser comme solution permanente à un problème de certificat.
+
+## Tests
+
+Les tests sont indépendants d'un Manager/Indexer réel :
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m unittest discover -s tests -v
+```
+
+## Sécurité et limites
+
+- Utiliser un compte Indexer dédié, à privilèges minimaux et en lecture seule sur l'index ciblé.
+- Protéger les identifiants et ne jamais les placer dans le dépôt ou les journaux.
+- Garder la validation TLS activée et limiter l'accès réseau à l'Indexer.
+- Les données reflètent l'état de l'inventaire Wazuh au moment de la collecte ; la fraîcheur dépend des synchronisations des agents.
+- Le rapport aide à prioriser l'analyse ; il ne détermine pas automatiquement les paquets à installer et n'effectue aucune mise à jour.
+- La version actuelle exporte l'ensemble des documents retournés par l'index ciblé. Le filtrage par groupes, agents ou sévérité pourra être ajouté dans une prochaine étape.
 
 ## Prochaines étapes
 
-1. Confirmer les versions de Wazuh et de Python à cibler.
-2. Définir les agents à inclure (tous, actifs seulement, groupes ou liste explicite).
-3. Vérifier les champs réellement renvoyés par l'API de l'installation cible, notamment la version corrigée et la sévérité.
-4. Choisir le format initial du rapport et sa destination.
-5. Implémenter le client API, la collecte paginée, la normalisation et les tests.
+1. Confirmer la version de Wazuh, l'URL de l'Indexer et les droits du compte de lecture.
+2. Tester le client sur un environnement non sensible et valider les champs présents dans les documents réels.
+3. Ajouter, si besoin, des filtres d'agents, groupes ou sévérité.
+4. Définir comment rapprocher les conditions Wazuh des recommandations de mise à jour validées par les équipes système.
+
+## Références
+
+- [Wazuh — Vulnerability Detection](https://documentation.wazuh.com/current/user-manual/capabilities/vulnerability-detection/index.html)
+- [Wazuh — Viewing vulnerability data](https://documentation.wazuh.com/current/user-manual/capabilities/vulnerability-detection/how-it-works.html#viewing-vulnerability-data)
+- [Wazuh — Server API reference](https://documentation.wazuh.com/current/user-manual/api/reference.html)
 
 ## Licence
 
