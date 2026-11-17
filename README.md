@@ -70,18 +70,17 @@ Ouvrir PowerShell dans le dossier du projet et exécuter :
 
 ```powershell
 py -3 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e .
+& .\.venv\Scripts\python.exe -m pip install -e .
 ```
 
-Si PowerShell bloque l'activation de l'environnement, tu peux appeler directement `.\.venv\Scripts\python.exe` à la place de `python` dans les commandes ci-dessous.
+**Aucun script PowerShell n'est exécuté et il n'est pas nécessaire d'activer l'environnement virtuel.** Chaque commande appelle directement `.\.venv\Scripts\python.exe`. Il n'est donc pas nécessaire de modifier la stratégie d'exécution PowerShell.
 
 ## Première configuration (assistant questions-réponses)
 
 Lancer l'assistant une seule fois :
 
 ```powershell
-python -m vuln_detect configure
+& .\.venv\Scripts\python.exe -m vuln_detect configure
 ```
 
 L'assistant pose les questions suivantes et enregistre les réponses dans le fichier local `.env` :
@@ -106,7 +105,7 @@ Mot de passe Indexer (saisie masquée):
 Vérifier le certificat TLS ? (oui/non) [oui]:
 Délai d'attente en secondes [30]:
 Configuration enregistrée dans .env.
-Vous pouvez maintenant lancer : python -m vuln_detect
+Pour lancer l'export : .\.venv\Scripts\python.exe -m vuln_detect
 ```
 
 Le compte Indexer doit être configuré par l'administrateur Wazuh avec des droits **en lecture seule** sur l'index `wazuh-states-vulnerabilities-*`. Si tu ne connais pas l'URL, le compte ou ses droits, demande-les à la personne qui administre Wazuh ; ce ne sont pas les identifiants de l'API Manager. Si l'accès est en HTTPS avec un certificat interne, la machine exécutant le programme doit faire confiance à l'autorité qui l'a émis. Ne répondre `non` à la vérification TLS que pour un test contrôlé.
@@ -118,7 +117,7 @@ L'assistant ne remplace pas `.env` sans confirmation. Le fichier contient le mot
 Une fois l'assistant terminé, exporter l'inventaire en CSV :
 
 ```powershell
-python -m vuln_detect
+& .\.venv\Scripts\python.exe -m vuln_detect
 ```
 
 Le fichier est créé ici : `reports\vulnerabilities.csv`. Chaque ligne contient une vulnérabilité pour un paquet sur un agent. Le dossier `reports` est créé automatiquement et ses fichiers sont ignorés par Git.
@@ -126,13 +125,13 @@ Le fichier est créé ici : `reports\vulnerabilities.csv`. Chaque ligne contient
 Pour exporter en JSON :
 
 ```powershell
-python -m vuln_detect --format json --output reports\vulnerabilities.json
+& .\.venv\Scripts\python.exe -m vuln_detect --format json --output reports\vulnerabilities.json
 ```
 
 Pour enregistrer le CSV ailleurs :
 
 ```powershell
-python -m vuln_detect --output "C:\Users\moi\Desktop\vulnerabilities.csv"
+& .\.venv\Scripts\python.exe -m vuln_detect --output "C:\Users\moi\Desktop\vulnerabilities.csv"
 ```
 
 L'option `--log-level DEBUG` augmente la verbosité. Le programme retourne un code non nul et affiche une erreur explicite si la configuration, l'API ou l'export échoue. Il ne journalise pas les identifiants.
@@ -165,7 +164,7 @@ Les tests sont indépendants d'un Manager/Indexer réel :
 
 ```powershell
 $env:PYTHONPATH = "src"
-python -m unittest discover -s tests -v
+& .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
 ## Sécurité et limites

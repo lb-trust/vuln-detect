@@ -1,5 +1,6 @@
 import getpass
 import json
+import sys
 from pathlib import Path
 from typing import Callable
 
@@ -69,5 +70,9 @@ def configure(
     )
     env_file.write_text(content, encoding="utf-8")
     output_fn(f"Configuration enregistrée dans {env_file}.")
-    output_fn("Vous pouvez maintenant lancer : python -m vuln_detect")
+    if sys.platform == "win32":
+        command = r".\.venv\Scripts\python.exe -m vuln_detect"
+    else:
+        command = ".venv/bin/python -m vuln_detect"
+    output_fn(f"Pour lancer l'export : {command}")
     return True
