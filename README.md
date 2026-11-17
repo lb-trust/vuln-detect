@@ -47,7 +47,8 @@ vuln-detect/
 │       ├── client.py    # Connexion et lecture paginée de l'Indexer
 │       ├── config.py    # Configuration par variables d'environnement
 │       ├── models.py    # Normalisation des documents de vulnérabilité
-│       └── report.py    # Export CSV et JSON
+│       ├── report.py    # Export CSV et JSON
+│       └── setup.py     # Assistant de configuration interactif
 └── tests/
     ├── test_client.py
     ├── test_config.py
@@ -65,42 +66,76 @@ Le client utilise uniquement la bibliothèque standard de Python.
 
 ## Installation
 
-Dans PowerShell, depuis le dépôt :
+Ouvrir PowerShell dans le dossier du projet et exécuter :
 
 ```powershell
 py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
 python -m pip install -e .
 ```
 
-Copier `.env.example` vers `.env`, puis renseigner les valeurs. Le programme lit les variables de l'environnement du processus ; il ne charge pas automatiquement un fichier `.env`. Pour les définir dans PowerShell :
+Si PowerShell bloque l'activation de l'environnement, tu peux appeler directement `.\.venv\Scripts\python.exe` à la place de `python` dans les commandes ci-dessous.
+
+## Première configuration (assistant questions-réponses)
+
+Lancer l'assistant une seule fois :
 
 ```powershell
-$env:WAZUH_INDEXER_URL = "https://wazuh.example.net:9200"
-$env:WAZUH_INDEXER_USERNAME = "vuln-reporter"
-$env:WAZUH_INDEXER_PASSWORD = "<mot-de-passe>"
-$env:WAZUH_VERIFY_TLS = "true"
-$env:WAZUH_TIMEOUT = "30"
+python -m vuln_detect configure
 ```
 
-Ne pas versionner de secrets. Le fichier `.env` est ignoré par Git ; en production, préférer un gestionnaire de secrets ou les mécanismes sécurisés de l'environnement d'exécution.
+L'assistant pose les questions suivantes et enregistre les réponses dans le fichier local `.env` :
+
+| Question | Quoi saisir ? | Exemple |
+| --- | --- | --- |
+| URL de l'API Indexer | Adresse réseau de l'Indexer, avec le protocole et le port. Ne pas saisir l'URL du Manager ni son port API `55000`. | `https://wazuh.example.net:9200` |
+| Nom du compte Indexer en lecture | Compte autorisé à lire l'index Wazuh `wazuh-states-vulnerabilities-*`. Demander ce compte à l'administrateur Wazuh si nécessaire. | `vuln-reporter` |
+| Mot de passe Indexer | Mot de passe de ce compte ; la saisie est masquée dans le terminal. | *(saisie masquée)* |
+| Vérifier le certificat TLS ? | Répondre `oui` dans un environnement normal. | `oui` |
+| Délai d'attente en secondes | Temps maximal d'attente d'une réponse Indexer. Appuyer sur Entrée pour conserver 30 secondes. | `30` |
+
+Exemple de dialogue :
+
+```text
+Configuration de l'accès en lecture au Wazuh Indexer.
+Utilisez l'adresse de l'Indexer, pas celle du Wazuh Manager.
+Exemple : https://wazuh.example.net:9200
+URL de l'API Indexer: https://wazuh.example.net:9200
+Nom du compte Indexer en lecture: vuln-reporter
+Mot de passe Indexer (saisie masquée):
+Vérifier le certificat TLS ? (oui/non) [oui]:
+Délai d'attente en secondes [30]:
+Configuration enregistrée dans .env.
+Vous pouvez maintenant lancer : python -m vuln_detect
+```
+
+Le compte Indexer doit être configuré par l'administrateur Wazuh avec des droits **en lecture seule** sur l'index `wazuh-states-vulnerabilities-*`. Si tu ne connais pas l'URL, le compte ou ses droits, demande-les à la personne qui administre Wazuh ; ce ne sont pas les identifiants de l'API Manager. Si l'accès est en HTTPS avec un certificat interne, la machine exécutant le programme doit faire confiance à l'autorité qui l'a émis. Ne répondre `non` à la vérification TLS que pour un test contrôlé.
+
+L'assistant ne remplace pas `.env` sans confirmation. Le fichier contient le mot de passe en clair : il est ignoré par Git, mais reste lisible par les utilisateurs qui ont accès à ton compte Windows. Ne le partage pas et préfère un gestionnaire de secrets en production.
 
 ## Utilisation
 
-Exporter en CSV (format par défaut) :
+Une fois l'assistant terminé, exporter l'inventaire en CSV :
 
 ```powershell
-vuln-detect --output reports\vulnerabilities.csv
+python -m vuln_detect
 ```
 
-Exporter en JSON :
+Le fichier est créé ici : `reports\vulnerabilities.csv`. Chaque ligne contient une vulnérabilité pour un paquet sur un agent. Le dossier `reports` est créé automatiquement et ses fichiers sont ignorés par Git.
+
+Pour exporter en JSON :
 
 ```powershell
-vuln-detect --format json --output reports\vulnerabilities.json
+python -m vuln_detect --format json --output reports\vulnerabilities.json
 ```
 
-L'option `--log-level DEBUG` augmente la verbosité. Le programme retourne un code non nul et affiche une erreur sur la sortie d'erreur si la configuration, l'API ou l'export échoue. Il ne journalise pas les identifiants.
+Pour enregistrer le CSV ailleurs :
+
+```powershell
+python -m vuln_detect --output "C:\Users\moi\Desktop\vulnerabilities.csv"
+```
+
+L'option `--log-level DEBUG` augmente la verbosité. Le programme retourne un code non nul et affiche une erreur explicite si la configuration, l'API ou l'export échoue. Il ne journalise pas les identifiants.
 
 ### Options
 
@@ -112,15 +147,17 @@ L'option `--log-level DEBUG` augmente la verbosité. Le programme retourne un co
 
 ## Configuration
 
+En usage normal, les paramètres sont chargés depuis `.env` créé par l'assistant ; il n'est pas nécessaire de modifier des variables à la main. Le tableau ci-dessous sert de référence ou si tu préfères configurer l'environnement toi-même.
+
 | Variable | Obligatoire | Valeur par défaut | Description |
 | --- | --- | --- | --- |
-| `WAZUH_INDEXER_URL` | Oui | — | URL de base de l'API Indexer |
-| `WAZUH_INDEXER_USERNAME` | Oui | — | Compte Indexer en lecture |
-| `WAZUH_INDEXER_PASSWORD` | Oui | — | Mot de passe Indexer |
-| `WAZUH_VERIFY_TLS` | Non | `true` | Vérification du certificat TLS |
-| `WAZUH_TIMEOUT` | Non | `30` | Délai d'attente HTTP, en secondes |
+| `WAZUH_INDEXER_URL` | Oui | — | URL Indexer en `http://` ou `https://`, généralement port `9200` |
+| `WAZUH_INDEXER_USERNAME` | Oui | — | Nom du compte en lecture de l'Indexer |
+| `WAZUH_INDEXER_PASSWORD` | Oui | — | Mot de passe correspondant |
+| `WAZUH_VERIFY_TLS` | Non | `true` | Vérification du certificat HTTPS : `true` ou `false` |
+| `WAZUH_TIMEOUT` | Non | `30` | Délai maximal d'une requête, en secondes |
 
-La désactivation de TLS (`WAZUH_VERIFY_TLS=false`) n'est prévue que pour un environnement de test contrôlé. Ne pas l'utiliser comme solution permanente à un problème de certificat.
+Les variables déjà définies dans l'environnement PowerShell sont prioritaires sur celles du fichier `.env`. La désactivation de TLS (`WAZUH_VERIFY_TLS=false`) n'est prévue que pour un environnement de test contrôlé ; ne l'utilise pas pour contourner durablement un problème de certificat.
 
 ## Tests
 

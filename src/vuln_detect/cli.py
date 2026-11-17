@@ -4,13 +4,20 @@ import sys
 from pathlib import Path
 
 from vuln_detect.client import WazuhIndexerClient, WazuhIndexerError
-from vuln_detect.config import ConfigurationError, Settings
+from vuln_detect.config import ConfigurationError, Settings, load_dotenv
 from vuln_detect.report import write_report
+from vuln_detect.setup import configure
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Export the Wazuh vulnerability inventory without modifying agents."
+    )
+    parser.add_argument(
+        "command",
+        nargs="?",
+        choices=("configure",),
+        help="ask connection questions and save them in .env",
     )
     parser.add_argument(
         "--format",
@@ -34,7 +41,16 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = _parse_args(argv)
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    args = _parse_args(arguments)
+    if args.command == "configure":
+        try:
+            configure()
+        except (ConfigurationError, OSError) as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+        return 0
+
     logging.basicConfig(
         level=getattr(logging, args.log_level),
         format="%(levelname)s: %(message)s",
@@ -50,6 +66,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     try:
+        load_dotenv()
         settings = Settings.from_env()
         findings = WazuhIndexerClient(settings).fetch_vulnerabilities()
         write_report(findings, args.output, args.format)
